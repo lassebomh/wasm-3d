@@ -1,5 +1,5 @@
 {
-  description = "Replace me";
+  description = "wasm 3d";
 
   inputs = {
     fenix = {
@@ -16,14 +16,20 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           f = with fenix.packages.${system}; combine [
-            stable.toolchain
-            targets.wasm32-unknown-unknown.stable.rust-std
+            latest.toolchain
+            targets.wasm32-unknown-unknown.latest.rust-std
           ];
+          
+          startScript = pkgs.writeShellApplication {
+            name = "start";
+            runtimeInputs = [pkgs.nginx];
+            text = ''cargo watch -i .gitignore -i "www/pkg/*" -s "wasm-pack build --no-pack --out-dir ./www/pkg --target web"'';
+          };
         in
           {
             devShells.default = 
               pkgs.mkShell {
-                name = "replace-me";
+                name = "wasm-3d";
 
                 systemPackages = with pkgs; [
                   rust-analyzer
@@ -44,6 +50,7 @@
                   nodejs_21
                   vscode-langservers-extracted
                   wasm-pack
+                  startScript
                 ];
 
                 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER = "lld";
