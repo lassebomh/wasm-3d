@@ -3,14 +3,16 @@
 
 pub mod matrix;
 pub mod matrix_3d;
-use core::f32;
+use core::{f32, panic};
 
 use matrix::Matrix;
 
 use wasm_bindgen::{Clamped, prelude::*};
 use web_sys::ImageData;
 
-use crate::matrix_3d::{Model, Point2D, Triangle, perspective, quad, rotate_y, screen, translate};
+use crate::matrix_3d::{
+    Model, Point2D, Triangle, cube, perspective, quad, rotate_x, rotate_y, scale, screen, translate,
+};
 
 #[wasm_bindgen]
 extern "C" {
@@ -59,6 +61,32 @@ impl Bitmap {
         }
     }
 
+    pub fn render_trig(&mut self, trig: Triangle, view_projection: Matrix<4, 4>) {
+        let p0 = trig.0(view_projection);
+        let p1 = trig.1(view_projection);
+        let p2 = trig.2(view_projection);
+
+        let s0 = screen(p0, self.width, self.height);
+        let s1 = screen(p1, self.width, self.height);
+        let s2 = screen(p2, self.width, self.height);
+
+        let min_x = s0.x().min(s1.x()).min(s2.x()) as usize;
+        let max_x = s0.x().max(s1.x()).max(s2.x()) as usize;
+
+        let min_y = s0.y().min(s1.y()).min(s2.y()) as usize;
+        let max_y = s0.y().max(s1.y()).max(s2.y()) as usize;
+
+        for x in min_x..max_x {
+            for y in min_y..max_y {
+                let p = Matrix([[x as f32 + 0.5, y as f32 + 0.5]]);
+                if inside_triangle(s0, s1, s2, p) {
+                    self.rows[y][x].r = 255;
+                    self.rows[y][x].a = 255;
+                }
+            }
+        }
+    }
+
     fn to_image_data(&self) -> ImageData {
         let mut buf: Vec<u8> = Vec::new();
 
@@ -103,53 +131,26 @@ pub fn render(
     height: u32,
     t: f32,
 ) -> Result<(), JsValue> {
-    // let ctx = canvas
-    //     .get_context("2d")?
-    //     .unwrap()
-    //     .dyn_into::<web_sys::CanvasRenderingContext2d>()?;
-
     let mut bmp = Bitmap::new(width, height);
 
     let projection = perspective(
         f32::consts::PI / 2.,
         width as f32 / height as f32,
-        1.,
-        2000.,
+        0.,
+        1000.,
     );
 
-    let camera = translate(0., 0., 0.);
-
-    let view_projection = camera.inv()(projection);
+    let camera = translate(0., 0., -1.5);
+    let view = camera.inv();
+    let view_projection = view(projection);
 
     let model = Model {
         material: 0,
-        mesh: quad(),
+        mesh: cube().apply(rotate_y(t / 1000.)(rotate_x(t / 2000.))),
     };
 
     for trig in model.mesh.0 {
-        let p0 = trig.0(view_projection);
-        let p1 = trig.1(view_projection);
-        let p2 = trig.2(view_projection);
-
-        let s0 = screen(p0, width, height);
-        let s1 = screen(p1, width, height);
-        let s2 = screen(p2, width, height);
-
-        let min_x = s0.x().min(s1.x()).min(s2.x()) as usize;
-        let max_x = s0.x().max(s1.x()).max(s2.x()) as usize;
-
-        let min_y = s0.y().min(s1.y()).min(s2.y()) as usize;
-        let max_y = s0.y().max(s1.y()).max(s2.y()) as usize;
-
-        for x in min_x..max_x {
-            for y in min_y..max_y {
-                let p = Matrix([[x as f32 + 0.5, y as f32 + 0.5]]);
-                if inside_triangle(s0, s1, s2, p) {
-                    bmp.rows[y][x].r = 255;
-                    bmp.rows[y][x].a = 255;
-                }
-            }
-        }
+        bmp.render_trig(trig, view_projection);
     }
 
     ctx.put_image_data(&bmp.to_image_data(), 0., 0.)?;

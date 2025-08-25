@@ -69,20 +69,29 @@ pub fn screen(pos: Matrix<1, 4>, screen_width: u32, screen_height: u32) -> Matri
 pub type Point = Matrix<1, 4>;
 pub type Point2D = Matrix<1, 2>;
 
+#[derive(Clone, Copy)]
 pub struct Triangle(pub Point, pub Point, pub Point);
 
 pub struct Mesh(pub Vec<Triangle>);
 
 impl Mesh {
-    // pub fn apply(&self, mat: Matrix<4, 4>) -> Self {
-    //     let mut copy = self.clone()/;
+    pub fn apply(&self, mat: Matrix<4, 4>) -> Self {
+        let mut array: Vec<Triangle> = Vec::new();
 
-    //     for x in copy.0.iter_mut() {
-    //         x.0 = x.0(mat);
-    //         x.1 = x.1(mat);
-    //         x.2 = x.2(mat);
-    //     }
-    // }
+        for trig in self.0.iter() {
+            let mut new_trig = trig.clone();
+            new_trig.0 = new_trig.0(mat);
+            new_trig.1 = new_trig.1(mat);
+            new_trig.2 = new_trig.2(mat);
+            array.push(new_trig);
+        }
+
+        Mesh(array)
+    }
+
+    pub fn join(&mut self, other: Mesh) {
+        self.0.append(&mut other.0.clone());
+    }
 }
 
 pub struct Model {
@@ -103,4 +112,22 @@ pub fn quad() -> Mesh {
             Matrix([[1., 0., 0., 1.]]),
         ),
     ])
+}
+
+pub fn cube() -> Mesh {
+    let mut quad = quad().apply(translate(-0.5, -0.5, -0.5));
+    quad.join(quad.apply(rotate_y(f32::consts::PI)));
+
+    let mut mesh = Mesh(Vec::new());
+
+    mesh.join(quad.apply(rotate_y(0.)));
+    mesh.join(quad.apply(rotate_y(f32::consts::PI / 2.)));
+    mesh.join(quad.apply(rotate_x(f32::consts::PI / 2.)));
+
+    // mesh.join(quad.apply(rotate_y(0.)));
+    // mesh.join(quad.apply(rotate_y(f32::consts::PI / 2.)));
+    // mesh.join(quad.apply(rotate_y(f32::consts::PI)));
+    // mesh.join(quad.apply(rotate_y(f32::consts::PI / 2. * 3.)));
+
+    mesh
 }
