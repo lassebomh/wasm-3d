@@ -11,7 +11,8 @@ use wasm_bindgen::{Clamped, prelude::*};
 use web_sys::ImageData;
 
 use crate::matrix_3d::{
-    Model, Point2D, Triangle, cube, perspective, quad, rotate_x, rotate_y, scale, screen, translate,
+    Model, Point2D, Triangle, cube, from_screen, perspective, quad, rotate_x, rotate_y, scale,
+    screen, translate,
 };
 
 #[wasm_bindgen]
@@ -24,6 +25,7 @@ macro_rules! console_log {
   ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
 }
 
+#[derive(Clone, Copy)]
 struct Color {
     r: u8,
     g: u8,
@@ -61,14 +63,14 @@ impl Bitmap {
         }
     }
 
-    pub fn render_trig(&mut self, trig: Triangle, view_projection: Matrix<4, 4>) {
+    pub fn render_trig(&mut self, trig: Triangle, view_projection: Matrix<4, 4>, color: Color) {
         let p0 = trig.0(view_projection);
         let p1 = trig.1(view_projection);
         let p2 = trig.2(view_projection);
 
-        let s0 = screen(p0, self.width, self.height);
-        let s1 = screen(p1, self.width, self.height);
-        let s2 = screen(p2, self.width, self.height);
+        let s0 = screen(p0, self.width as f32, self.height as f32);
+        let s1 = screen(p1, self.width as f32, self.height as f32);
+        let s2 = screen(p2, self.width as f32, self.height as f32);
 
         let min_x = s0.x().min(s1.x()).min(s2.x()) as usize;
         let max_x = s0.x().max(s1.x()).max(s2.x()) as usize;
@@ -80,8 +82,7 @@ impl Bitmap {
             for y in min_y..max_y {
                 let p = Matrix([[x as f32 + 0.5, y as f32 + 0.5]]);
                 if inside_triangle(s0, s1, s2, p) {
-                    self.rows[y][x].r = 255;
-                    self.rows[y][x].a = 255;
+                    self.rows[y][x] = color;
                 }
             }
         }
@@ -127,20 +128,15 @@ fn inside_triangle(screen_0: Point2D, screen_1: Point2D, screen_2: Point2D, p: P
 #[wasm_bindgen]
 pub fn render(
     ctx: web_sys::CanvasRenderingContext2d,
-    width: u32,
-    height: u32,
+    width: f32,
+    height: f32,
     t: f32,
 ) -> Result<(), JsValue> {
-    let mut bmp = Bitmap::new(width, height);
+    let mut bmp = Bitmap::new(width as u32, height as u32);
 
-    let projection = perspective(
-        f32::consts::PI / 2.,
-        width as f32 / height as f32,
-        0.,
-        1000.,
-    );
+    let projection = perspective(f32::consts::PI / 2., width / height, 0., 100.);
 
-    let camera = translate(0., 0., -1.5);
+    let camera = translate(0., 0., -5.);
     let view = camera.inv();
     let view_projection = view(projection);
 
@@ -149,9 +145,26 @@ pub fn render(
         mesh: cube().apply(rotate_y(t / 1000.)(rotate_x(t / 2000.))),
     };
 
-    for trig in model.mesh.0 {
-        bmp.render_trig(trig, view_projection);
+    for trig in model.mesh.0.iter() {
+        bmp.render_trig(
+            *trig,
+            view_projection,
+            Color {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        );
     }
+
+    // let x = width / 2.;
+    // let y = height / 2.;
+
+    // let point = from_screen(Matrix([[x, y]]), width, height)(view_projection.inv());
+
+    // let mut point = Matrix([[0.5, 0.5]])(view_projection);
+    // point.0[0][3] = 1.;
 
     ctx.put_image_data(&bmp.to_image_data(), 0., 0.)?;
 

@@ -314,7 +314,7 @@ impl<const H: usize, const W: usize> fmt::Display for Matrix<H, W> {
             }
             string += "[";
             for x in 0..W {
-                string += format!("{:>5.1}", self[y][x]).as_str();
+                string += format!("{:>5.3}", self[y][x]).as_str();
                 if x != W - 1 {
                     string += ", ";
                 }

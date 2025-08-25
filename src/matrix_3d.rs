@@ -59,11 +59,28 @@ pub fn scale(x: f32, y: f32, z: f32) -> Matrix<4, 4> {
     ]);
 }
 
-pub fn screen(pos: Matrix<1, 4>, screen_width: u32, screen_height: u32) -> Matrix<1, 2> {
+pub fn screen(pos: Matrix<1, 4>, screen_width: f32, screen_height: f32) -> Matrix<1, 2> {
     return Matrix([[
-        ((pos.x() / pos.z() + 1.) * (screen_width as f32)) / 2.,
-        ((1. - pos.y() / pos.z()) * (screen_height as f32)) / 2.,
+        ((pos.x() / pos.z() + 1.) * (screen_width)) / 2.,
+        ((1. - pos.y() / pos.z()) * (screen_height)) / 2.,
     ]]);
+}
+pub fn from_screen(
+    screen_pos: Matrix<1, 2>,
+    screen_width: f32,
+    screen_height: f32,
+) -> Matrix<1, 4> {
+    let screen_x = screen_pos.x();
+    let screen_y = screen_pos.y();
+    let width = screen_width;
+    let height = screen_height;
+
+    let x = (screen_x * 2.0 / width) - 1.0;
+    let y = 1.0 - (screen_y * 2.0 / height);
+    let z = 0.0;
+    let w = 1.0;
+
+    Matrix([[x, y, z, w]])
 }
 
 pub type Point = Matrix<1, 4>;
