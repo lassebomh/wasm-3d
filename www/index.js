@@ -11,13 +11,15 @@ const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("canvas
 
 const ctx = canvas.getContext("2d") ?? fail();
 
+const downscale = 3;
+
 let width = 0;
 let height = 0;
 
 const observer = new ResizeObserver((entries) => {
   for (const entry of entries) {
-    width = entry.contentRect.width;
-    height = entry.contentRect.height;
+    width = entry.contentRect.width / downscale;
+    height = entry.contentRect.height / downscale;
     canvas.width = width;
     canvas.height = height;
     render(ctx, width, height, performance.now());

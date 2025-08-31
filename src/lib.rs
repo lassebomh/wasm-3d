@@ -1,6 +1,7 @@
 #![feature(unboxed_closures)]
 #![feature(fn_traits)]
 
+pub mod bitmap;
 pub mod matrix;
 pub mod matrix_3d;
 use core::{f32, panic};
@@ -10,9 +11,12 @@ use matrix::Matrix;
 use wasm_bindgen::{Clamped, prelude::*};
 use web_sys::ImageData;
 
-use crate::matrix_3d::{
-    Model, Point2D, Triangle, cube, from_screen, perspective, quad, rotate_x, rotate_y, scale,
-    screen, translate,
+use crate::{
+    bitmap::Bitmap,
+    matrix_3d::{
+        Model, Point2D, RaycastHit, Triangle, cube, from_screen, perspective, quad,
+        ray_intersects_triangle, rotate_x, rotate_y, scale, screen, translate,
+    },
 };
 
 #[wasm_bindgen]
@@ -23,87 +27,7 @@ extern "C" {
 
 macro_rules! console_log {
   ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
-}
-
-#[derive(Clone, Copy)]
-struct Color {
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-}
-
-struct Bitmap {
-    width: u32,
-    height: u32,
-    rows: Vec<Vec<Color>>,
-}
-
-impl Bitmap {
-    fn new(width: u32, height: u32) -> Bitmap {
-        let mut rows: Vec<Vec<Color>> = Vec::new();
-
-        for _ in 0..height {
-            let mut row: Vec<Color> = Vec::new();
-            for _ in 0..width {
-                row.push(Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                })
-            }
-            rows.push(row);
-        }
-
-        Bitmap {
-            width,
-            height,
-            rows,
-        }
-    }
-
-    pub fn render_trig(&mut self, trig: Triangle, view_projection: Matrix<4, 4>, color: Color) {
-        let p0 = trig.0(view_projection);
-        let p1 = trig.1(view_projection);
-        let p2 = trig.2(view_projection);
-
-        let s0 = screen(p0, self.width as f32, self.height as f32);
-        let s1 = screen(p1, self.width as f32, self.height as f32);
-        let s2 = screen(p2, self.width as f32, self.height as f32);
-
-        let min_x = s0.x().min(s1.x()).min(s2.x()) as usize;
-        let max_x = s0.x().max(s1.x()).max(s2.x()) as usize;
-
-        let min_y = s0.y().min(s1.y()).min(s2.y()) as usize;
-        let max_y = s0.y().max(s1.y()).max(s2.y()) as usize;
-
-        for x in min_x..max_x {
-            for y in min_y..max_y {
-                let p = Matrix([[x as f32 + 0.5, y as f32 + 0.5]]);
-                if inside_triangle(s0, s1, s2, p) {
-                    self.rows[y][x] = color;
-                }
-            }
-        }
-    }
-
-    fn to_image_data(&self) -> ImageData {
-        let mut buf: Vec<u8> = Vec::new();
-
-        for col in self.rows.iter() {
-            for color in col.iter() {
-                buf.push(color.r);
-                buf.push(color.g);
-                buf.push(color.b);
-                buf.push(color.a);
-            }
-        }
-
-        ImageData::new_with_u8_clamped_array_and_sh(Clamped(&buf), self.width, self.height)
-            .expect("failed to create image data")
-    }
-}
+  }
 
 fn cross_product(a: Point2D, b: Point2D, c: Point2D) -> f32 {
     (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x())
@@ -134,39 +58,155 @@ pub fn render(
 ) -> Result<(), JsValue> {
     let mut bmp = Bitmap::new(width as u32, height as u32);
 
-    let projection = perspective(f32::consts::PI / 2., width / height, 0., 100.);
+    let aspect_ratio = width / height;
+    let fov = f32::consts::PI / 2.;
 
     let camera = translate(0., 0., -5.);
-    let view = camera.inv();
-    let view_projection = view(projection);
 
-    let model = Model {
-        material: 0,
-        mesh: cube().apply(rotate_y(t / 1000.)(rotate_x(t / 2000.))),
-    };
+    let background_color = Matrix([[0., 0., 0., 1.]]);
+    let light_position = Matrix([[0., -5., 0., 1.]]);
+    let light_direction = Matrix([[0., -1., -0.1, 0.]]).normalize();
 
-    for trig in model.mesh.0.iter() {
-        bmp.render_trig(
-            *trig,
-            view_projection,
-            Color {
-                r: 255,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-        );
+    let models: Vec<Model> = vec![
+        Model {
+            color: Matrix([[1., 0., 0., 1.]]),
+            reflect: 0.5,
+            mesh: cube().apply(translate(3., 0., 0.)),
+        },
+        Model {
+            color: Matrix([[0., 1., 0., 1.]]),
+            reflect: 0.5,
+            mesh: cube().apply(rotate_y(t / 10000.)),
+        },
+        Model {
+            color: Matrix([[0., 0., 1., 1.]]),
+            reflect: 0.5,
+            mesh: cube().apply(translate(-3., 0., 0.)),
+        },
+    ];
+
+    for screen_x in 0..(width as usize) {
+        let x = screen_x as f32;
+        for screen_y in 0..(height as usize) {
+            let y = screen_y as f32;
+            let forward = Matrix([[0., 0., 1., 0.]]);
+
+            let pitch = ((y / height) - 0.5) * fov;
+            let yaw = ((x / width) - 0.5) * fov * aspect_ratio;
+
+            let origin = Matrix([[0., 0., 0., 1.]])(camera);
+            let direction = forward(rotate_y(yaw)(rotate_x(pitch)));
+
+            fn raycast_color(
+                origin: Matrix<1, 4>,
+                direction: Matrix<1, 4>,
+                background_color: Matrix<1, 4>,
+                models: &Vec<Model>,
+                depth: u32,
+            ) -> Matrix<1, 4> {
+                let mut hits: Vec<(RaycastHit, &Model)> = Vec::new();
+
+                for model in models.iter() {
+                    for trig in model.mesh.0.iter() {
+                        match ray_intersects_triangle(origin, direction, *trig) {
+                            Some(hit) => {
+                                hits.push((hit, model));
+                            }
+                            None => {}
+                        }
+                    }
+                }
+
+                let nearest = hits
+                    .iter()
+                    .min_by(|a, b| a.0.t.partial_cmp(&b.0.t).unwrap());
+
+                match nearest {
+                    Some((hit, model)) => {
+                        let mut out = model.color * model.reflect;
+
+                        if out.w() < 1. && depth < 2 {
+                            let dot = direction.dot(hit.normal.transpose()).x();
+                            let direction_reflected = direction - hit.normal * (2.0 * dot);
+
+                            let origin_reflected = origin + direction * hit.t - hit.normal / 1000.0;
+
+                            let other = raycast_color(
+                                origin_reflected,
+                                direction_reflected,
+                                background_color,
+                                models,
+                                depth + 1,
+                            );
+
+                            out = out + other;
+
+                            // console_log!("{}", out);
+                            // console_log!("{}", other);
+
+                            // panic!();
+
+                            out
+                        } else {
+                            out
+                        }
+                    }
+                    None => background_color,
+                }
+            }
+
+            bmp.rows[screen_y][screen_x] =
+                raycast_color(origin, direction, background_color, &models, 0).to_color();
+        }
     }
-
-    // let x = width / 2.;
-    // let y = height / 2.;
-
-    // let point = from_screen(Matrix([[x, y]]), width, height)(view_projection.inv());
-
-    // let mut point = Matrix([[0.5, 0.5]])(view_projection);
-    // point.0[0][3] = 1.;
 
     ctx.put_image_data(&bmp.to_image_data(), 0., 0.)?;
 
     Ok(())
 }
+
+// #[wasm_bindgen]
+// pub fn render(
+//     ctx: web_sys::CanvasRenderingContext2d,
+//     width: f32,
+//     height: f32,
+//     t: f32,
+// ) -> Result<(), JsValue> {
+//     let mut bmp = Bitmap::new(width as u32, height as u32);
+
+//     let projection = perspective(f32::consts::PI / 2., width / height, 0., 100.);
+
+//     let camera = translate(0., 0., -5.);
+//     let view = camera.inv();
+//     let view_projection = view(projection);
+
+//     let model = Model {
+//         material: 0,
+//         mesh: cube().apply(rotate_y(t / 1000.)(rotate_x(t / 2000.))),
+//     };
+
+//     for trig in model.mesh.0.iter() {
+//         bmp.render_trig(
+//             *trig,
+//             view_projection,
+//             Color {
+//                 r: 255,
+//                 g: 0,
+//                 b: 0,
+//                 a: 255,
+//             },
+//         );
+//     }
+
+//     // let x = width / 2.;
+//     // let y = height / 2.;
+
+//     // let point = from_screen(Matrix([[x, y]]), width, height)(view_projection.inv());
+
+//     // let mut point = Matrix([[0.5, 0.5]])(view_projection);
+//     // point.0[0][3] = 1.;
+
+//     ctx.put_image_data(&bmp.to_image_data(), 0., 0.)?;
+
+//     Ok(())
+// }

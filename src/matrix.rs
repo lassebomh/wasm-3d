@@ -1,6 +1,8 @@
 use core::fmt;
 use std::ops::{self, Index, IndexMut};
 
+use crate::bitmap::Color;
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Matrix<const H: usize, const W: usize>(pub [[f32; W]; H]);
 
@@ -127,7 +129,37 @@ impl<const H: usize, const W: usize> Matrix<H, W> {
         return copy;
     }
 }
+impl Matrix<1, 3> {
+    pub fn cross(self, other: Matrix<1, 3>) -> Matrix<1, 3> {
+        let a = &self[0];
+        let b = &other[0];
 
+        Matrix([[
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]])
+    }
+    pub fn normalize(self) -> Self {
+        let len = (self.x().powi(2) + self.y().powi(2) + self.z().powi(2)).sqrt();
+        if len != 0.0 { self / len } else { self }
+    }
+}
+impl Matrix<1, 4> {
+    pub fn to_color(self) -> Color {
+        Color::new(
+            (self.x() * 255.) as u8,
+            (self.y() * 255.) as u8,
+            (self.z() * 255.) as u8,
+            (self.w() * 255.) as u8,
+        )
+    }
+    pub fn normalize(self) -> Self {
+        let len =
+            (self.x().powi(2) + self.y().powi(2) + self.z().powi(2) + self.w().powi(2)).sqrt();
+        if len != 0.0 { self / len } else { self }
+    }
+}
 impl<const H: usize, const W: usize, const T: usize> FnOnce<(Matrix<W, T>,)> for Matrix<H, W> {
     type Output = Matrix<H, T>;
 
